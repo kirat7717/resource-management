@@ -51,7 +51,7 @@
  *                 description: Optional avatar URL uploaded via /api/uploads/avatar
  *     responses:
  *       201:
- *         description: User registered successfully. A verification code has been sent to your email.
+ *         description: User registered successfully. Verification code is being sent to your email.
  *         content:
  *           application/json:
  *             schema:
@@ -62,7 +62,7 @@
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: User registered successfully. A verification code has been sent to your email.
+ *                   example: User registered successfully. Verification code is being sent to your email.
  *                 data:
  *                   type: object
  *                   properties:

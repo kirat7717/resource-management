@@ -74,20 +74,14 @@ export const registerUser = async (req, res) => {
       emailVerificationOtpExpires: otpExpires
     });
 
-    // 7. Send OTP verification email
-    try {
-      await sendOtpEmail({
-        email: newUser.email,
-        name: newUser.name,
-        otp
-      });
-    } catch (emailError) {
-      // Return clean error without exposing Nodemailer internal details
-      return res.status(500).json({
-        success: false,
-        message: 'Account created, but failed to send verification email. Please try resending verification code.'
-      });
-    }
+    // 7. Send OTP verification email asynchronously in the background (non-blocking)
+    sendOtpEmail({
+      email: newUser.email,
+      name: newUser.name,
+      otp
+    }).catch((emailError) => {
+      console.error(`Failed to send registration OTP email to ${newUser.email}:`, emailError.message);
+    });
 
     // 8. Explicitly build safe user response object (no sensitive fields or OTP fields)
     const user = {
@@ -103,10 +97,10 @@ export const registerUser = async (req, res) => {
       updatedAt: newUser.updatedAt
     };
 
-    // 9. Return successful response
+    // 9. Return successful response immediately
     return res.status(201).json({
       success: true,
-      message: 'User registered successfully. A verification code has been sent to your email.',
+      message: 'User registered successfully. Verification code is being sent to your email.',
       data: {
         user
       }

@@ -1,4 +1,7 @@
+import dns from 'dns';
 import mongoose from 'mongoose';
+
+dns.setServers(['8.8.8.8', '8.8.4.4']);
 
 /**
  * Connects to the MongoDB database using the connection string in environment variables.

@@ -19,6 +19,7 @@
     "mongoose": "^9.10.2",
     "morgan": "^1.12.1",
     "multer": "^2.4.0",
+    "node-cron": "^4.6.0",
     "nodemailer": "^10.0.10",
     "swagger-jsdoc": "^6.3.0",
     "swagger-ui-express": "^5.0.1"

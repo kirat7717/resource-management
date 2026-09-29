@@ -11,6 +11,7 @@ import { buildSearch } from '../utils/query/search.js';
 import { buildFilter } from '../utils/query/filter.js';
 import { buildSort } from '../utils/query/sort.js';
 import { getPagination, getPaginationMeta } from '../utils/query/pagination.js';
+import { createNotification } from '../services/notification.service.js';
 
 /**
  * GET /api/resources
@@ -304,6 +305,8 @@ export const formatResource = (resource) => {
     regionId: resource.regionId || resource.region,
     description: resource.description || '',
     status: resource.status,
+    startedAt: resource.startedAt,
+    runningNotificationSent: resource.runningNotificationSent ?? false,
     createdBy: resource.createdBy || resource.ownerId,
     ownerId: resource.ownerId || resource.createdBy,
     createdAt: resource.createdAt,
@@ -510,6 +513,20 @@ export const updateResource = async (req, res) => {
 
     await resource.save();
 
+    // Create Notification for resource_updated
+    try {
+      const resourceName = resource.resourceName || resource.name || 'Resource';
+      await createNotification({
+        userId: req.user._id,
+        resourceId: resource._id,
+        type: 'resource_updated',
+        title: 'Resource Updated',
+        message: `Resource "${resourceName}" has been updated.`
+      });
+    } catch (notifErr) {
+      // Non-blocking notification error
+    }
+
     return res.status(200).json({
       success: true,
       message: 'Resource updated successfully',
@@ -563,6 +580,8 @@ export const startResource = async (req, res) => {
 
     const previousStatus = resource.status;
     resource.status = 'running';
+    resource.startedAt = new Date();
+    resource.runningNotificationSent = false;
     await resource.save();
 
     // Create ActivityLog for the start action
@@ -573,6 +592,20 @@ export const startResource = async (req, res) => {
       action: 'start',
       details: { previousStatus, newStatus: 'running' }
     });
+
+    // Create Notification for resource_started
+    try {
+      const resourceName = resource.resourceName || resource.name || 'Resource';
+      await createNotification({
+        userId: req.user._id,
+        resourceId: resource._id,
+        type: 'resource_started',
+        title: 'Resource Started',
+        message: `Resource "${resourceName}" has been started.`
+      });
+    } catch (notifErr) {
+      // Non-blocking notification error
+    }
 
     return res.status(200).json({
       success: true,
@@ -627,6 +660,8 @@ export const stopResource = async (req, res) => {
 
     const previousStatus = resource.status;
     resource.status = 'stopped';
+    resource.startedAt = null;
+    resource.runningNotificationSent = false;
     await resource.save();
 
     // Create ActivityLog for the stop action
@@ -637,6 +672,20 @@ export const stopResource = async (req, res) => {
       action: 'stop',
       details: { previousStatus, newStatus: 'stopped' }
     });
+
+    // Create Notification for resource_stopped
+    try {
+      const resourceName = resource.resourceName || resource.name || 'Resource';
+      await createNotification({
+        userId: req.user._id,
+        resourceId: resource._id,
+        type: 'resource_stopped',
+        title: 'Resource Stopped',
+        message: `Resource "${resourceName}" has been stopped.`
+      });
+    } catch (notifErr) {
+      // Non-blocking notification error
+    }
 
     return res.status(200).json({
       success: true,
@@ -690,6 +739,20 @@ export const deleteResource = async (req, res) => {
       action: 'delete',
       details: { name: resource.name, type: resource.type, status: resource.status }
     });
+
+    // Create Notification for resource_deleted
+    try {
+      const resourceName = resource.resourceName || resource.name || 'Resource';
+      await createNotification({
+        userId: req.user._id,
+        resourceId: resource._id,
+        type: 'resource_deleted',
+        title: 'Resource Deleted',
+        message: `Resource "${resourceName}" has been deleted.`
+      });
+    } catch (notifErr) {
+      // Non-blocking notification error
+    }
 
     return res.status(200).json({
       success: true,

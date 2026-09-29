@@ -21,10 +21,10 @@ const swaggerOptions = {
         url: localUrl,
         description: 'Local Development'
       },
-        {
-    url: 'https://resource-management-wtm5.onrender.com',
-    description: 'Production Server'
-  },
+      {
+        url: 'https://resource-management-wtm5.onrender.com',
+        description: 'Production Server'
+      },
       {
         url: ngrokUrl,
         description: 'Ngrok'

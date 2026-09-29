@@ -6,6 +6,7 @@ import path from 'path';
 import authRoutes from './routes/auth.routes.js';
 import uploadRoutes from './routes/upload.routes.js';
 import resourceRoutes from './routes/resource.routes.js';
+import notificationRoutes from './routes/notification.routes.js';
 import lookupRoutes from './routes/lookup.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 
@@ -32,6 +33,12 @@ app.use('/api/user', authRoutes);
 app.use('/api/uploads', uploadRoutes);
 
 app.use('/api/resources', resourceRoutes);
+app.use('/api/notifications', notificationRoutes);
+
+// Start 1-minute recurring cron for running resource notifications
+import('./services/notification.service.js').then(({ startResourceRunningCron }) => {
+  startResourceRunningCron();
+});
 
 app.use('/api/dashboard', dashboardRoutes);
 

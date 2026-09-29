@@ -116,6 +116,15 @@ const resourceSchema = new mongoose.Schema(
       type: String,
       enum: ['provisioning', 'running', 'stopped', 'active', 'failed'],
       default: 'provisioning'
+    },
+    // Lifecycle tracking for notifications
+    startedAt: {
+      type: Date,
+      default: null
+    },
+    runningNotificationSent: {
+      type: Boolean,
+      default: false
     }
   },
   {

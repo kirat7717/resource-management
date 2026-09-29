@@ -4,7 +4,7 @@ import swaggerJSDoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
 
 // Normalize URLs by trimming trailing slashes to avoid double slashes in API calls
-const localUrl = (process.env.BACKEND_URL || 'http://localhost:5000/').replace(/\/+$/, '');
+const localUrl = 'http://localhost:5000';
 const ngrokUrl = (process.env.NGROK_URL || 'https://resource-management-wtm5.onrender.com').replace(/\/+$/, '');
 
 // Swagger/OpenAPI specification configuration

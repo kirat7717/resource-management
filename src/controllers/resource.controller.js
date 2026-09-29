@@ -257,21 +257,19 @@ export const createResource = async (req, res) => {
       // Non-blocking log error
     }
 
-    // 9. Send notification email safely
-    try {
-      await sendResourceCreatedEmail({
-        email: req.user.email || req.user.workEmail,
-        name: req.user.name,
-        resource: {
-          _id: newResource._id,
-          name: newResource.resourceName,
-          type: rtDoc.name,
-          status: newResource.status
-        }
-      });
-    } catch (emailErr) {
-      // Non-blocking email error
-    }
+    // 9. Send notification email asynchronously in the background (non-blocking)
+    sendResourceCreatedEmail({
+      email: req.user.email || req.user.workEmail,
+      name: req.user.name,
+      resource: {
+        _id: newResource._id,
+        name: newResource.resourceName,
+        type: rtDoc.name,
+        status: newResource.status
+      }
+    }).catch((emailErr) => {
+      console.error(`Failed to send resource creation email for resource ${newResource._id}:`, emailErr.message);
+    });
 
     return res.status(201).json({
       success: true,

@@ -2,7 +2,8 @@ import mongoose from 'mongoose';
 import {
   getUserNotifications,
   markNotificationAsRead,
-  markAllNotificationsAsRead
+  markAllNotificationsAsRead,
+  deleteNotification
 } from '../services/notification.service.js';
 
 /**
@@ -121,6 +122,43 @@ export const markAllAsRead = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'An error occurred while updating notifications'
+    });
+  }
+};
+
+/**
+ * DELETE /api/notifications/:id
+ * Deletes a notification belonging to the authenticated user.
+ */
+export const deleteNotificationById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?._id || req.auth?.userId || req.auth?.id;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid notification ID'
+      });
+    }
+
+    const deleted = await deleteNotification(id, userId);
+
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: 'Notification not found'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Notification deleted successfully'
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: 'An error occurred while deleting the notification'
     });
   }
 };

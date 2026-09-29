@@ -65,6 +65,17 @@ export const markAllNotificationsAsRead = async (userId) => {
 };
 
 /**
+ * Deletes a notification belonging to a specific user.
+ *
+ * @param {string} id Notification ID
+ * @param {string|mongoose.Types.ObjectId} userId
+ * @returns {Promise<Object|null>} Deleted notification document or null if not found/not owned
+ */
+export const deleteNotification = async (id, userId) => {
+  return await Notification.findOneAndDelete({ _id: id, userId });
+};
+
+/**
  * Checks running resources that have been active for >= thresholdMs (default 5 minutes)
  * without a notification sent yet, creates a 'resource_running_5_minutes' notification
  * for the resource owner, and marks runningNotificationSent = true.
@@ -165,6 +176,7 @@ export default {
   getUserNotifications,
   markNotificationAsRead,
   markAllNotificationsAsRead,
+  deleteNotification,
   checkRunningResources,
   startResourceRunningCron,
   stopResourceRunningCron

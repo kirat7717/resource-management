@@ -5,13 +5,40 @@ import Subscription from '../models/subscription.model.js';
 import ResourceGroup from '../models/resourceGroup.model.js';
 import ResourceType from '../models/resourceType.model.js';
 import Region from '../models/region.model.js';
-import { createResourceSchema, updateResourceSchema } from '../validations/resource.validation.js';
+import User from '../models/user.model.js';
+import FriendRequest from '../models/friendRequest.model.js';
+import ResourceShare from '../models/resourceShare.model.js';
+import { createResourceSchema, updateResourceSchema, shareResourceSchema } from '../validations/resource.validation.js';
 import { sendResourceCreatedEmail } from '../emails/resource.email.js';
 import { buildSearch } from '../utils/query/search.js';
 import { buildFilter } from '../utils/query/filter.js';
 import { buildSort } from '../utils/query/sort.js';
 import { getPagination, getPaginationMeta } from '../utils/query/pagination.js';
 import { createNotification } from '../services/notification.service.js';
+
+/**
+ * Simple helper to check access to a resource.
+ * Returns { resource, permission: 'owner' | 'editor' | 'viewer' } or null.
+ */
+export const getResourceAccess = async (resourceId, userId) => {
+  const resource = await Resource.findById(resourceId);
+  if (!resource) return null;
+
+  if (resource.ownerId && resource.ownerId.toString() === userId.toString()) {
+    return { resource, permission: 'owner' };
+  }
+
+  const share = await ResourceShare.findOne({
+    resourceId,
+    sharedWith: userId
+  });
+
+  if (share) {
+    return { resource, permission: share.permission };
+  }
+
+  return null;
+};
 
 /**
  * GET /api/resources
@@ -353,23 +380,23 @@ export const getResourceById = async (req, res) => {
       });
     }
 
-    // Find resource by ID and verify ownership
-    const resource = await Resource.findOne({
-      _id: id,
-      ownerId: req.user._id
-    });
+    // Check access (owner, viewer, or editor)
+    const access = await getResourceAccess(id, req.user._id);
 
-    if (!resource) {
+    if (!access) {
       return res.status(404).json({
         success: false,
         message: 'Resource not found'
       });
     }
 
+    const formatted = formatResource(access.resource);
+    formatted.permission = access.permission;
+
     return res.status(200).json({
       success: true,
       message: 'Resource retrieved successfully',
-      data: formatResource(resource)
+      data: formatted
     });
   } catch (err) {
     return res.status(500).json({
@@ -407,18 +434,24 @@ export const updateResource = async (req, res) => {
       });
     }
 
-    // 3. Find resource by ID and verify ownership
-    const resource = await Resource.findOne({
-      _id: id,
-      ownerId: req.user._id
-    });
+    // 3. Find resource by ID and verify access
+    const access = await getResourceAccess(id, req.user._id);
 
-    if (!resource) {
+    if (!access) {
       return res.status(404).json({
         success: false,
         message: 'Resource not found'
       });
     }
+
+    if (access.permission === 'viewer') {
+      return res.status(403).json({
+        success: false,
+        message: 'Viewers are not allowed to update this resource'
+      });
+    }
+
+    const resource = access.resource;
 
     // 4. Validate reference documents if being updated
     if (value.subscription) {
@@ -511,18 +544,20 @@ export const updateResource = async (req, res) => {
 
     await resource.save();
 
-    // Create Notification for resource_updated
-    try {
-      const resourceName = resource.resourceName || resource.name || 'Resource';
-      await createNotification({
-        userId: req.user._id,
-        resourceId: resource._id,
-        type: 'resource_updated',
-        title: 'Resource Updated',
-        message: `Resource "${resourceName}" has been updated.`
-      });
-    } catch (notifErr) {
-      // Non-blocking notification error
+    // Create Notification for resource_updated if updated by Editor
+    if (access.permission === 'editor' && resource.ownerId && resource.ownerId.toString() !== req.user._id.toString()) {
+      try {
+        const resourceName = resource.resourceName || resource.name || 'Resource';
+        await createNotification({
+          userId: resource.ownerId,
+          resourceId: resource._id,
+          type: 'resource_updated',
+          title: 'Resource Updated',
+          message: `${req.user.name} updated your resource "${resourceName}".`
+        });
+      } catch (notifErr) {
+        // Non-blocking notification error
+      }
     }
 
     return res.status(200).json({
@@ -554,18 +589,24 @@ export const startResource = async (req, res) => {
       });
     }
 
-    // Find resource by ID and verify ownership
-    const resource = await Resource.findOne({
-      _id: id,
-      ownerId: req.user._id
-    });
+    // Find resource by ID and verify access
+    const access = await getResourceAccess(id, req.user._id);
 
-    if (!resource) {
+    if (!access) {
       return res.status(404).json({
         success: false,
         message: 'Resource not found'
       });
     }
+
+    if (access.permission === 'viewer') {
+      return res.status(403).json({
+        success: false,
+        message: 'Viewers are not allowed to start this resource'
+      });
+    }
+
+    const resource = access.resource;
 
     // If status is already running, return safe idempotent success without duplicate activity
     if (resource.status === 'running') {
@@ -594,13 +635,25 @@ export const startResource = async (req, res) => {
     // Create Notification for resource_started
     try {
       const resourceName = resource.resourceName || resource.name || 'Resource';
-      await createNotification({
-        userId: req.user._id,
-        resourceId: resource._id,
-        type: 'resource_started',
-        title: 'Resource Started',
-        message: `Resource "${resourceName}" has been started.`
-      });
+      const isEditor = access.permission === 'editor' && resource.ownerId && resource.ownerId.toString() !== req.user._id.toString();
+
+      if (isEditor) {
+        await createNotification({
+          userId: resource.ownerId,
+          resourceId: resource._id,
+          type: 'resource_started',
+          title: 'Resource Started',
+          message: `${req.user.name} started your resource "${resourceName}".`
+        });
+      } else {
+        await createNotification({
+          userId: req.user._id,
+          resourceId: resource._id,
+          type: 'resource_started',
+          title: 'Resource Started',
+          message: `Resource "${resourceName}" has been started.`
+        });
+      }
     } catch (notifErr) {
       // Non-blocking notification error
     }
@@ -634,18 +687,24 @@ export const stopResource = async (req, res) => {
       });
     }
 
-    // Find resource by ID and verify ownership
-    const resource = await Resource.findOne({
-      _id: id,
-      ownerId: req.user._id
-    });
+    // Find resource by ID and verify access
+    const access = await getResourceAccess(id, req.user._id);
 
-    if (!resource) {
+    if (!access) {
       return res.status(404).json({
         success: false,
         message: 'Resource not found'
       });
     }
+
+    if (access.permission === 'viewer') {
+      return res.status(403).json({
+        success: false,
+        message: 'Viewers are not allowed to stop this resource'
+      });
+    }
+
+    const resource = access.resource;
 
     // If status is already stopped, return safe idempotent success without duplicate activity
     if (resource.status === 'stopped') {
@@ -674,13 +733,25 @@ export const stopResource = async (req, res) => {
     // Create Notification for resource_stopped
     try {
       const resourceName = resource.resourceName || resource.name || 'Resource';
-      await createNotification({
-        userId: req.user._id,
-        resourceId: resource._id,
-        type: 'resource_stopped',
-        title: 'Resource Stopped',
-        message: `Resource "${resourceName}" has been stopped.`
-      });
+      const isEditor = access.permission === 'editor' && resource.ownerId && resource.ownerId.toString() !== req.user._id.toString();
+
+      if (isEditor) {
+        await createNotification({
+          userId: resource.ownerId,
+          resourceId: resource._id,
+          type: 'resource_stopped',
+          title: 'Resource Stopped',
+          message: `${req.user.name} stopped your resource "${resourceName}".`
+        });
+      } else {
+        await createNotification({
+          userId: req.user._id,
+          resourceId: resource._id,
+          type: 'resource_stopped',
+          title: 'Resource Stopped',
+          message: `Resource "${resourceName}" has been stopped.`
+        });
+      }
     } catch (notifErr) {
       // Non-blocking notification error
     }
@@ -714,11 +785,8 @@ export const deleteResource = async (req, res) => {
       });
     }
 
-    // Find resource by ID and verify ownership
-    const resource = await Resource.findOne({
-      _id: id,
-      ownerId: req.user._id
-    });
+    // Find resource by ID
+    const resource = await Resource.findById(id);
 
     if (!resource) {
       return res.status(404).json({
@@ -727,7 +795,16 @@ export const deleteResource = async (req, res) => {
       });
     }
 
+    // Only owner can delete resource
+    if (resource.ownerId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the resource owner can delete this resource'
+      });
+    }
+
     await Resource.deleteOne({ _id: resource._id });
+    await ResourceShare.deleteMany({ resourceId: resource._id });
 
     // Create ActivityLog for the delete action
     await ActivityLog.create({
@@ -760,6 +837,294 @@ export const deleteResource = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'An error occurred while deleting the resource'
+    });
+  }
+};
+
+/**
+ * POST /api/resources/:id/shares
+ * Shares a resource owned by the authenticated user with an accepted friend.
+ */
+export const shareResource = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid resource ID'
+      });
+    }
+
+    const { error, value } = shareResourceSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.details[0].message
+      });
+    }
+
+    const resource = await Resource.findById(id);
+    if (!resource) {
+      return res.status(404).json({
+        success: false,
+        message: 'Resource not found'
+      });
+    }
+
+    // Only the resource owner can share
+    if (resource.ownerId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the resource owner can share this resource'
+      });
+    }
+
+    const { userId, permission = 'viewer' } = value;
+
+    // Do not allow sharing with yourself
+    if (userId.toString() === req.user._id.toString()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot share resource with yourself'
+      });
+    }
+
+    const targetUser = await User.findById(userId);
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // User must be an accepted friend
+    const friendship = await FriendRequest.findOne({
+      $or: [
+        { sender: req.user._id, recipient: userId },
+        { sender: userId, recipient: req.user._id }
+      ],
+      status: 'accepted'
+    });
+
+    if (!friendship) {
+      return res.status(400).json({
+        success: false,
+        message: 'User must be an accepted friend to share resources'
+      });
+    }
+
+    // Do not create duplicate shares
+    const existingShare = await ResourceShare.findOne({
+      resourceId: resource._id,
+      sharedWith: userId
+    });
+
+    if (existingShare) {
+      return res.status(400).json({
+        success: false,
+        message: 'Resource is already shared with this user'
+      });
+    }
+
+    const share = await ResourceShare.create({
+      resourceId: resource._id,
+      ownerId: req.user._id,
+      sharedWith: userId,
+      permission
+    });
+
+    // Create notification for sharedWith user
+    try {
+      const resourceName = resource.resourceName || resource.name || 'Resource';
+      const capPermission = permission === 'editor' ? 'Editor' : 'Viewer';
+      await createNotification({
+        userId,
+        resourceId: resource._id,
+        type: 'resource_shared',
+        title: 'Resource Shared',
+        message: `${req.user.name} shared "${resourceName}" with you as ${capPermission}.`
+      });
+    } catch (notifErr) {
+      // Non-blocking notification error
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: 'Resource shared successfully',
+      data: share
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: 'An error occurred while sharing the resource'
+    });
+  }
+};
+
+/**
+ * GET /api/resources/shared-with-me
+ * Retrieves all resources shared with the authenticated user, including permission.
+ * Supports optional pagination (?page=1&limit=10) and search (?search=...) by resource name or owner name.
+ */
+export const getSharedWithMeResources = async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
+    const skip = (page - 1) * limit;
+
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+
+    const query = { sharedWith: req.user._id };
+
+    if (search) {
+      const matchingOwners = await User.find({
+        name: { $regex: search, $options: 'i' }
+      }).select('_id');
+      const matchingOwnerIds = matchingOwners.map((u) => u._id);
+
+      const matchingResources = await Resource.find({
+        $or: [
+          { resourceName: { $regex: search, $options: 'i' } },
+          { name: { $regex: search, $options: 'i' } }
+        ]
+      }).select('_id');
+      const matchingResourceIds = matchingResources.map((r) => r._id);
+
+      query.$or = [
+        { resourceId: { $in: matchingResourceIds } },
+        { ownerId: { $in: matchingOwnerIds } }
+      ];
+    }
+
+    const total = await ResourceShare.countDocuments(query);
+    const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+
+    const shares = await ResourceShare.find(query)
+      .populate('resourceId')
+      .populate('ownerId', 'name email avatar organizationName')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const formattedResources = shares
+      .filter((share) => share.resourceId)
+      .map((share) => {
+        const formatted = formatResource(share.resourceId);
+        formatted.permission = share.permission;
+        formatted.sharedAt = share.createdAt;
+        formatted.owner = share.ownerId
+          ? {
+              id: share.ownerId._id,
+              name: share.ownerId.name,
+              email: share.ownerId.email
+            }
+          : null;
+        return formatted;
+      });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Shared resources retrieved successfully',
+      data: {
+        resources: formattedResources,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages
+        }
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: 'An error occurred while retrieving shared resources'
+    });
+  }
+};
+
+/**
+ * GET /api/resources/shared-by-me
+ * Retrieves all resources owned by the authenticated user that have been shared with other users.
+ * Supports optional pagination (?page=1&limit=10) and search (?search=...) by resource name or shared-with user name.
+ */
+export const getSharedByMeResources = async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
+    const skip = (page - 1) * limit;
+
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+
+    const query = { ownerId: req.user._id };
+
+    if (search) {
+      const matchingUsers = await User.find({
+        name: { $regex: search, $options: 'i' }
+      }).select('_id');
+      const matchingUserIds = matchingUsers.map((u) => u._id);
+
+      const matchingResources = await Resource.find({
+        $or: [
+          { resourceName: { $regex: search, $options: 'i' } },
+          { name: { $regex: search, $options: 'i' } }
+        ]
+      }).select('_id');
+      const matchingResourceIds = matchingResources.map((r) => r._id);
+
+      query.$or = [
+        { resourceId: { $in: matchingResourceIds } },
+        { sharedWith: { $in: matchingUserIds } }
+      ];
+    }
+
+    const total = await ResourceShare.countDocuments(query);
+    const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+
+    const shares = await ResourceShare.find(query)
+      .populate('resourceId')
+      .populate('sharedWith', 'name email avatar organizationName')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const formattedShares = shares
+      .filter((share) => share.resourceId)
+      .map((share) => {
+        const formatted = formatResource(share.resourceId);
+        formatted.shareId = share._id;
+        formatted.permission = share.permission;
+        formatted.sharedAt = share.createdAt;
+        formatted.sharedWith = share.sharedWith
+          ? {
+              id: share.sharedWith._id,
+              name: share.sharedWith.name,
+              email: share.sharedWith.email,
+              avatar: share.sharedWith.avatar || '',
+              organizationName: share.sharedWith.organizationName || ''
+            }
+          : null;
+        return formatted;
+      });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Resources shared by you retrieved successfully',
+      data: {
+        resources: formattedShares,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages
+        }
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: 'An error occurred while retrieving resources shared by you'
     });
   }
 };

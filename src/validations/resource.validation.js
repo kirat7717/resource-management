@@ -237,3 +237,21 @@ export const updateResourceSchema = Joi.object({
     'object.min': 'At least one field must be provided for update',
     'object.unknown': 'Field {#label} is not allowed'
   });
+
+export const shareResourceSchema = Joi.object({
+  userId: Joi.string()
+    .trim()
+    .regex(objectIdRegex)
+    .required()
+    .messages({
+      'string.empty': 'userId is required',
+      'string.pattern.base': 'userId must be a valid MongoDB ObjectId',
+      'any.required': 'userId is required'
+    }),
+  permission: Joi.string()
+    .valid('viewer', 'editor')
+    .default('viewer')
+    .messages({
+      'any.only': 'permission must be either viewer or editor'
+    })
+});

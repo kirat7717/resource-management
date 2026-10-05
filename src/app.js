@@ -4,6 +4,8 @@ import morgan from 'morgan';
 import path from 'path';
 
 import authRoutes from './routes/auth.routes.js';
+import userRoutes from './routes/user.routes.js';
+import friendRoutes from './routes/friend.routes.js';
 import uploadRoutes from './routes/upload.routes.js';
 import resourceRoutes from './routes/resource.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
@@ -29,6 +31,9 @@ app.get('/api/health', (req, res) => {
 });
 
 app.use('/api/user', authRoutes);
+app.use('/api/user', userRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/friends', friendRoutes);
 
 app.use('/api/uploads', uploadRoutes);
 

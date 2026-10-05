@@ -189,3 +189,77 @@ export const respondFriendRequest = async (req, res) => {
     });
   }
 };
+
+/**
+ * GET /api/friends/requests/pending
+ * Retrieves pending friend requests received by the authenticated user.
+ * Supports optional pagination (?page=1&limit=10) and search (?search=...) by sender's name or email.
+ */
+export const getPendingFriendRequests = async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
+    const skip = (page - 1) * limit;
+
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+
+    const query = {
+      recipient: req.user._id,
+      status: 'pending'
+    };
+
+    if (search) {
+      const matchingSenders = await User.find({
+        $or: [
+          { name: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } }
+        ]
+      }).select('_id');
+      const matchingSenderIds = matchingSenders.map((u) => u._id);
+      query.sender = { $in: matchingSenderIds };
+    }
+
+    const total = await FriendRequest.countDocuments(query);
+    const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+
+    const requests = await FriendRequest.find(query)
+      .populate('sender', 'name email avatar organizationName')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const formattedRequests = requests.map((fr) => ({
+      id: fr._id,
+      status: fr.status,
+      createdAt: fr.createdAt,
+      sender: fr.sender
+        ? {
+            id: fr.sender._id,
+            name: fr.sender.name,
+            email: fr.sender.email,
+            avatar: fr.sender.avatar || '',
+            organizationName: fr.sender.organizationName || ''
+          }
+        : null
+    }));
+
+    return res.status(200).json({
+      success: true,
+      message: 'Pending friend requests retrieved successfully',
+      data: {
+        requests: formattedRequests,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages
+        }
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: 'An error occurred while retrieving pending friend requests'
+    });
+  }
+};

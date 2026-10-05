@@ -113,6 +113,93 @@
  *       404:
  *         description: Recipient user not found
  *
+ * /api/friends/requests/pending:
+ *   get:
+ *     summary: Get pending friend requests
+ *     description: Retrieves pending friend requests received by the authenticated user. Supports pagination and search by sender name or email.
+ *     tags:
+ *       - Friends & Users
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *         description: Number of items per page
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Case-insensitive search matching sender name or email
+ *     responses:
+ *       200:
+ *         description: Pending friend requests retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Pending friend requests retrieved successfully
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     requests:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           status:
+ *                             type: string
+ *                             example: pending
+ *                           createdAt:
+ *                             type: string
+ *                             format: date-time
+ *                           sender:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: string
+ *                               name:
+ *                                 type: string
+ *                               email:
+ *                                 type: string
+ *                               avatar:
+ *                                 type: string
+ *                               organizationName:
+ *                                 type: string
+ *                     pagination:
+ *                       type: object
+ *                       properties:
+ *                         page:
+ *                           type: integer
+ *                           example: 1
+ *                         limit:
+ *                           type: integer
+ *                           example: 10
+ *                         total:
+ *                           type: integer
+ *                           example: 5
+ *                         totalPages:
+ *                           type: integer
+ *                           example: 1
+ *       401:
+ *         description: Authentication required
+ *
  * /api/friends/requests/{id}:
  *   patch:
  *     summary: Respond to a friend request
